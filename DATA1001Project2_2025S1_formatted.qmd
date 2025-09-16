@@ -1,0 +1,245 @@
+---
+title: "Targeted Treatment: Investigating Survival Outcomes by Estrogen Receptor Status in Breast Cancer"
+author: "550265746 Cui Jiajie"
+format:
+  html:
+    embed-resources: true
+    toc: true
+    toc-depth: 2
+    number-sections: true
+    code-fold: true
+    theme: cosmo
+    highlight-style: github
+editor: visual
+---
+
+# Client Bio
+
+**Client**:
+
+National Breast Cancer Foundation (Australia)
+
+![](nbcf.png)
+
+**Bio**:
+
+The National Breast Cancer Foundation (NBCF) is Australia's leading not-for-profit organisation funding world-class breast cancer research. NBCF is committed to achieving zero deaths from breast cancer by 2030 through targeted funding and strategic research partnerships (*nbcf.org.au, n.d*.).
+
+# Recommendation
+
+I recommend implementing early intervention and tailored treatment for estrogen receptor-negative patients, based on the significantly shorter median survival and greater outcome variability observed in statistical analysis, which aligns with external evidence on breast cancer tumor behavior and supports NBCF's mission of reducing mortality through strategic interventions.
+
+# Evidence
+
+## Numerical summaries
+
+```{r setup, echo=TRUE, message=FALSE, warning=FALSE, show_col_types = FALSE}
+library(tidyverse)  
+library(janitor)    
+library(tibble)    
+library(knitr)      
+
+# Read and clean dataset
+data <- read_csv("breast_cancer.csv") %>%
+  clean_names() %>%  # Convert column names to snake_case (e.g., Estrogen Status → estrogen_status)
+  filter(
+    estrogen_status %in% c("Positive", "Negative"),  # Keep only relevant receptor groups
+    !is.na(survival_months)  # Remove rows with missing survival data
+  )
+
+# Summarise group statistics for each receptor status
+summary_table <- data %>%
+  group_by(group = estrogen_status) %>%
+  summarise(
+    n = n(),  # Sample size
+    Mean = mean(survival_months),  # Average survival
+    SD = sd(survival_months),  # Standard deviation
+    Median = median(survival_months),  # Median survival
+    IQR = IQR(survival_months),  # Interquartile range
+    .groups = "drop"  # Drop group metadata after summarisation
+  )
+
+```
+
+```{r summary-table, echo=TRUE, message=FALSE, warning=FALSE}
+knitr::kable(summary_table, digits = 1, caption = "Survival Summary by Estrogen Receptor Status")
+
+```
+
+Estrogen-receptor–positive patients (n = 3755) show longer survival (mean 72.1 months; median 73 months) than receptor-negative patients (n = 269, mean 60.3 months; median 64 months). Larger SD and IQR indicate more variable outcomes, supporting the hypothesis of shorter and less predictable survival in receptor negative patients.
+
+## Graphical summaries
+
+### Boxplot
+
+```{r}
+ggplot(data, aes(x = estrogen_status, y = survival_months, color = estrogen_status)) +
+  geom_boxplot(alpha = 0.2) +      
+  scale_color_manual(values = c("Positive" = "#1f77b4", "Negative" = "#e15759")) +
+  labs(
+    title = "Survival Time by Estrogen Receptor Status",
+    x = "Estrogen Receptor Status",
+    y = "Survival Time (Months)"
+  ) +
+  theme_bw(base_size = 14) +
+  guides(color = guide_legend(title = "Group")) +
+  theme(
+    plot.title = element_text(face = "bold", size = 16),
+    plot.subtitle = element_text(size = 12, face = "italic")
+  ) 
+
+
+```
+
+The boxplot shows that receptor-negative patients have a lower median survival (64 months) and wider IQR (57 months) compared to receptor-positive patients (median 73, IQR 33), indicating greater variability and shorter average outcomes(*ggplot2.tidyverse.org*, 2025; *r-graph-gallery.com*, 2025).
+
+### Histogram
+
+::: panel-tabset
+### Survival Time by Estrogen Receptor Status
+
+```{r, message=FALSE, show_col_types=FALSE}
+library(tidyverse)
+library(janitor)
+
+# Step 1: Load and clean data
+data <- read_csv("breast_cancer.csv") %>%
+  clean_names() %>%
+  filter(
+    estrogen_status %in% c("Positive", "Negative"),
+    !is.na(survival_months)
+  )
+
+# Step 2: Bin survival months into intervals
+data <- data %>%
+  mutate(surv_bin = cut(survival_months,
+                        breaks = seq(0, 120, by = 10),
+                        include.lowest = TRUE,
+                        right = FALSE))
+
+# Step 3: Count patients per group per bin
+binned_counts <- data %>%
+  group_by(estrogen_status, surv_bin) %>%
+  summarise(count = n(), .groups = "drop")
+
+# Step 4: Plot faceted bar chart with adjusted Y-axis
+ggplot(binned_counts, aes(x = surv_bin, y = count, fill = surv_bin)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~estrogen_status, ncol = 1, scales = "free_y") +
+  labs(
+    title = "Survival Time Distribution by Estrogen Receptor Status",
+    subtitle = "Grouped by 10-Month Survival Intervals",
+    x = "Survival Time Interval (Months)",
+    y = "Number of Patients"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+
+```
+:::
+
+Faceted histograms comparing survival time indicate that estrogen receptor-positive patients are clustered in longer survival intervals (60–100 months), while receptor-negative patients display a broader, more variable distribution with no clear peak.
+
+## Bootstrap Analysis
+
+```{r}
+library(dplyr)
+library(knitr)
+library(ggplot2)
+
+# Set number of bootstrap samples and seed for reproducibility
+B <- 1000
+set.seed(1001)
+
+# Extract survival times for each group, removing any missing values
+positive <- data %>%
+  filter(estrogen_status == "Positive") %>%
+  pull(survival_months) %>%
+  na.omit()
+
+negative <- data %>%
+  filter(estrogen_status == "Negative") %>%
+  pull(survival_months) %>%
+  na.omit()
+
+# Bootstrap: resample with replacement and calculate the difference in means
+bootstrap_diff <- replicate(B, {
+  pos_sample <- sample(positive, replace = TRUE)
+  neg_sample <- sample(negative, replace = TRUE)
+  mean(pos_sample) - mean(neg_sample)
+})
+
+# Compute 95% confidence interval from the bootstrap distribution
+ci_lower <- quantile(bootstrap_diff, 0.025)
+ci_upper <- quantile(bootstrap_diff, 0.975)
+
+
+# Plot the bootstrap distribution with confidence interval lines
+ggplot(data.frame(diff = bootstrap_diff), aes(x = diff)) +
+  geom_histogram(aes(y = after_stat(density)), binwidth = 1, fill = "#F8766d") +
+  geom_vline(xintercept = c(ci_lower, ci_upper), linetype = "dashed", color = "blue") +
+  labs(
+    title = "Bootstrap Distribution of Mean Difference",
+    x = "Difference in Mean Survival Months",
+    y = "Density"
+  ) +
+  theme_classic()
+
+```
+
+A bootstrap analysis (B = 1000) estimated a 95% confidence interval of \[8.16, 15.28\] months for the mean survival difference. Since the interval excludes zero, the result is statistically significant, supporting the conclusion that receptor-negative patients have shorter survival. Furthermore, as shown in the histogram, the entire bootstrap distribution lies above zero, reinforcing this conclusion.
+
+## External Evidence
+
+External evidence from the American Cancer Society reports that 5-year survival rates are significantly lower for hormone receptor negative breast cancers. Similarly, the U.S. National Cancer Institute notes that these cancers grow faster and have poorer outcomes. Both sources reinforce our findings.
+
+## Extrapolation
+
+The primary dataset used in this analysis is the SEER breast cancer dataset (USA, 2006–2010). Although the data are U.S.-based, the core biological mechanisms—such as the prognostic relevance of hormone receptor status—are expected to hold across developed healthcare systems, including Australia.
+
+Prior studies show similar outcomes globally, and the observed associations remain clinically relevant for NBCF despite differences in healthcare delivery systems.
+
+## Limitations
+
+-   The U.S.-based SEER dataset may not fully reflect the Australian clinical context.
+
+-   Observational data may hide unmeasured confounders such as treatment adherence, which may influence survival outcomes independently of receptor status.
+
+-   Missing values were removed, which may introduce bias if data were systematically missing (e.g., older patients lacking full reporting), bias could be introduced.
+
+-   Survival time was treated as a continuous variable, which could limit the accuracy of survival estimates in a real-world setting.\
+
+**Overall, multiple aligned analyses—numerical, graphical, resampling, and external evidence—consistently indicate that receptor-negative status predicts a roughly one-year shorter (i.e., 11.8 months) and more variable survival. This coherent evidence justifies enhanced monitoring and tailored treatment for this high-risk subgroup.**
+
+# Ethics Statement
+
+I adhered to the shared value of **Respect** and the ethical principle of **Protecting the Interests of Subjects (Principle 12)** by ensuring that survival data was analyzed with integrity, avoiding misrepresentation or overstatement that could lead to misinformed clinical decisions.
+
+# AI usage statement
+
+ChatGPT 4o 04/28/2025 <https://chatgpt.com/share/680ecc07-22f8-800f-a72c-82f2d37c77cb>
+
+summary: I saw a jitter plot image online and was wondering if it could be used in my report, so I asked chatgpt about its usage.I used it in the "Evidence" part, in my graphical summaries(though ultimately give up it).
+
+ChatGPT 4o 05/02/2025 <https://chatgpt.com/share/68149cff-5f9c-800f-aaeb-f26626693155>
+
+summary: I want to know how to integrate a picture into my qmd file. I used it in the "Client" part to demonstrate my targeted organization's logo.
+
+# Acknowledgements
+
+## References
+
+-   American Cancer Society. (2024). *Survival rates for breast cancer*. <https://www.cancer.org/cancer/types/breast-cancer/understanding-a-breast-cancer-diagnosis/breast-cancer-survival-rates.html>
+
+-   ggplot2.tidyverse.org. (2025). *geom_jitter function*. <https://ggplot2.tidyverse.org/reference/geom_jitter.html>
+
+-   National Breast Cancer Foundation. (n.d.). *National Breast Cancer Foundation*. <https://nbcf.org.au/>
+
+-   National Cancer Institute. (2024). *Hormone therapy for breast cancer*. <https://www.cancer.gov/types/breast/breast-hormone-therapy-fact-sheet>
+
+-   r-graph-gallery.com. (2025). *Beautifying ggplot2 graphics*. <https://r-graph-gallery.com/ggplot2-color.html>
+
+-   Example report 1
